@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cursed Video Player - In-App Fix</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        body {
+            background-color: #0b0b0b;
+            color: #ffffff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            overflow: hidden;
+            padding-top: env(safe-area-inset-top);
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        header {
+            text-align: center;
+            padding: 15px;
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: -0.5px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), rgba(0,0,0,0));
+        }
+
+        .player-viewport {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #000000;
+            position: relative;
+            overflow: hidden;
+            margin: 10px;
+            border-radius: 24px;
+            border: 1px solid #222;
+        }
+
+        /* Der Trick für echten Stretch: Ein innerer Container, der verzerrt wird */
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Video wird für Eingaben unantastbar gemacht (kein Apple GUI) */
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: fill; 
+            display: block;
+            pointer-events: none; /* Blockiert jegliches Klicken auf das native Apple-Menü */
+            position: absolute;
+            z-index: 2;
+        }
+
+        .placeholder-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000000;
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            display: none;
+            z-index: 1;
+        }
+
+        /* Unsichtbarer Klick-Layer über allem für Play/Pause */
+        .click-shield {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+            cursor: pointer;
+        }
+
+        .controls-container {
+            background: rgba(20, 20, 20, 0.85);
+            -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(20px);
+            padding: 20px;
+            border-radius: 24px 24px 0 0;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 20;
+        }
+
+        .file-inputs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .custom-file-upload {
+            background: #2c2c2e;
+            padding: 12px;
+            text-align: center;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid #3a3a3c;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .info-bar {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            font-variant-numeric: tabular-nums;
+            color: #aeaeb2;
+        }
+
+        .ratio-badge {
+            background: #007aff;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <header>Chaos Distortion Player</header>
+
+    <div class="player-viewport">
+        <div class="video-wrapper" id="videoWrapper">
+            <!-- Nativ blockieren, automatischen Fullscreen verhindern -->
+            <video id="mainVideo" playsinline autoplay muted loop webkit-playsinline></video>
+            <div id="placeholderOverlay" class="placeholder-overlay"></div>
+        </div>
+        <!-- Dieser Layer fängt alle Touches ab -> Kein Apple GUI poppt auf -->
+        <div class="click-shield" id="clickShield"></div>
+    </div>
+
+    <div class="controls-container">
+        <div class="file-inputs">
+            <label class="custom-file-upload">
+                <input type="file" id="videoInput" accept="video/*">
+                🎬 Video wählen
+            </label>
+            <label class="custom-file-upload">
+                <input type="file" id="imageInput" accept="image/*">
+                🖼️ Bild wählen (Optional)
+            </label>
+        </div>
+
+        <div class="info-bar">
+            <span id="timeDisplay">Zeit: 00:00</span>
+            <span id="ratioDisplay" class="ratio-badge">Format: -:-</span>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('mainVideo');
+        const videoWrapper = document.getElementById('videoWrapper');
+        const clickShield = document.getElementById('clickShield');
+        const videoInput = document.getElementById('videoInput');
+        const imageInput = document.getElementById('imageInput');
+        const overlay = document.getElementById('placeholderOverlay');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const ratioDisplay = document.getElementById('ratioDisplay');
+
+        let placeholderImageURL = null;
+
+        // Play/Pause über den Klick-Schild regeln
+        clickShield.addEventListener('click', () => {
+            if (video.paused) {
+                video.play();
+            } else {
+                video.pause();
+            }
+        });
+
+        videoInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const url = URL.createObjectURL(file);
+                video.src = url;
+                video.load();
+                video.play();
+                overlay.style.display = "none";
+                video.style.opacity = "1";
+            }
+        });
+
+        imageInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                if (placeholderImageURL) URL.revokeObjectURL(placeholderImageURL);
+                placeholderImageURL = URL.createObjectURL(file);
+                overlay.style.backgroundImage = `url('${placeholderImageURL}')`;
+            }
+        });
+
+        video.addEventListener('timeupdate', () => {
+            const currentTime = video.currentTime;
+            
+            let minutes = Math.floor(currentTime / 60);
+            let seconds = Math.floor(currentTime % 60);
+
+            const padM = String(minutes).padStart(2, '0');
+            const padS = String(seconds).padStart(2, '0');
+            timeDisplay.textContent = `Zeit: ${padM}:${padS}`;
+
+            if ((minutes === 0 && seconds === 0) || minutes === 0 || seconds === 0) {
+                overlay.style.display = "block";
+                video.style.opacity = "0";
+                ratioDisplay.textContent = `Format: Geblockt (${minutes}:${seconds})`;
+                ratioDisplay.style.background = "#ff3b30";
+            } else {
+                overlay.style.display = "none";
+                video.style.opacity = "1";
+                
+                // Berechnung der CSS-Skalierung, um iOS auszutricksen
+                // Basis-Verhältnis des Viewports ermitteln
+                const baseRatio = videoWrapper.clientWidth / videoWrapper.clientHeight;
+                const targetRatio = minutes / seconds;
+                
+                // Zwingt die Verzerrung über CSS-Transform-Scale
+                const scaleX = targetRatio / baseRatio;
+                video.style.transform = `scale(${scaleX}, 1)`;
+                
+                ratioDisplay.textContent = `Format: ${minutes}:${seconds}`;
+                ratioDisplay.style.background = "#007aff";
+            }
+        });
+    </script>
+</body>
+</html>
